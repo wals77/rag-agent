@@ -1,0 +1,164 @@
+name: rag-agent
+
+x-backend-env: &backend-env
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: rag_db
+  MYSQL_USER: root
+  MYSQL_PASSWORD: root123
+  ELASTICSEARCH_URIS: http://elasticsearch:9200
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
+  OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+  EMBEDDING_DIM: ${EMBEDDING_DIM:-768}
+  RERANK_BASE_URL: http://reranker:8001
+  OCR_BASE_URL: ""
+  FILE_STORE_DIR: /app/data/uploads
+  LLM_CHUNKING_ENABLED: "true"
+  LLM_CHUNKING_REQUIRED: "false"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: rag-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: rag_db
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/src/main/resources/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot123"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: rag-es
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_KEEP_ALIVE: 5m
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+
+  # 首次启动自动拉取所需模型（qwen2.5:7b + 嵌入模型），完成后退出
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: rag-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "等待 ollama 就绪..."
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        for m in "$$OLLAMA_CHAT_MODEL" "$$OLLAMA_EMBED_MODEL"; do
+          echo "pulling $$m ..."
+          ollama pull "$$m" || exit 1
+        done
+        echo "models ready"
+        # 预热嵌入模型所在容器不存在时无碍，仅用于一次启动
+        exit 0
+    restart: "no"
+
+  reranker:
+    build: ./services/reranker
+    container_name: rag-reranker
+    environment:
+      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-base}
+    ports:
+      - "8001:8001"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8001/health')\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+
+  backend:
+    build: ./backend
+    container_name: rag-backend
+    environment:
+      <<: *backend-env
+    ports:
+      - "8080:8080"
+    volumes:
+      - uploads_data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+      reranker:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    build: ./frontend
+    container_name: rag-frontend
+    environment:
+      NUXT_PUBLIC_API_BASE: ${FRONTEND_API_BASE:-http://localhost:8080}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  # 可选：扫描件 OCR。启用: docker compose --profile ocr up -d
+  ocr:
+    build: ./services/ocr
+    container_name: rag-ocr
+    profiles: ["ocr"]
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  es_data:
+  ollama_data:
+  hf_cache:
+  uploads_data:

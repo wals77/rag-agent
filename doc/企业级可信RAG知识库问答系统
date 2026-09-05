@@ -1,0 +1,327 @@
+项目概述
+产品定位：带"强制引用溯源"的企业私有知识库问答系统，每个回答必须标注文件名+页码，无引用则拒绝回答。核心价值是让AI的回答"可信、可查、可追责"。
+
+一、技术栈（最终确认版）
+层级	技术选型	版本/说明
+前端	Nuxt 3 + Vue 3 + TypeScript + TailwindCSS	SSR（服务端渲染），企业级UI，PDF预览用pdf-vue3
+后端	Spring Boot 3 + Spring AI + JDK 17	核心框架
+本地AI	Ollama + Qwen2.5-7B	语义分块 + 问答生成，本地部署零成本
+嵌入模型	Ollama + nomic-embed-text 或 BGE-M3	文本向量化
+向量数据库	Elasticsearch 8.x（本地） 或 阿里云AnalyticDB MySQL	统一管理向量+关键词(BM25)检索，减少组件
+关系数据库	MySQL 8.0	存分块元数据、文档信息、反馈、问答日志
+文档解析	PaddleOCR（扫描件OCR）+ Apache PDFBox + Apache POI	支持PDF(含扫描件)/Word/TXT
+重排序	BGE-Reranker（BAAI/bge-reranker-base）	精准排序Top 3
+部署	Docker Compose（一键启动全部服务）	后端JAR + 前端Node + MySQL + ES + Ollama
+二、功能需求（按优先级）
+P0 - 必须实现（核心可用）
+功能	说明
+文档上传与解析	支持PDF（含扫描件OCR）、Word、TXT；提取纯文本、页码、章节标题
+智能分块	调用本地Ollama(Qwen2.5-7B)语义分块；记录父块(规则粗切)关系
+向量化存储	分块文本→嵌入模型→向量，存入ES；元数据存MySQL
+多路召回	用户问题同时走：①向量检索 ②BM25关键词检索 ③HyDE假设答案检索；合并去重
+重排序	BGE-Reranker重打分，取Top 3
+强制引用回答	大模型回答必须标注【来源：文件名，第X页】；无资料返回"未找到"
+引用超链接	前端点击引用跳转PDF对应页码
+P1 - 差异化竞争力
+功能	说明
+分块溯源数据库	MySQL存储每个分块的完整元数据（chunk_id、doc_id、page_num、status、父子版本链等）
+父子版本链	支持分块合并/拆分/编辑，记录parent_chunk_id和edited_version_of
+用户反馈收集	每个回答下提供👍/👎/引用有误按钮，反馈写入chunk_feedback表
+管理后台	查看所有分块列表、按文档筛选、手动编辑/合并/拆分分块、标记问题分块
+P2 - 增强优化
+功能	说明
+多文档矛盾处理	检测参考资料矛盾，回答中全部列出，不自行融合
+灰度发布	分块修改后支持仅10%用户生效，验证后全量
+PDF预览跳转	前端嵌入pdf-vue3，点击引用链接打开PDF并滚动到对应页码
+三、MySQL数据库设计（最终版）
+sql
+-- 创建数据库
+CREATE DATABASE rag_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE rag_db;
+
+-- 1. 文档主表
+CREATE TABLE documents (
+    doc_id VARCHAR(64) PRIMARY KEY COMMENT '文档唯一ID',
+    doc_name VARCHAR(255) NOT NULL COMMENT '文件名',
+    file_path VARCHAR(500) COMMENT '存储路径',
+    file_size BIGINT COMMENT '文件大小(字节)',
+    total_pages INT DEFAULT 0 COMMENT '总页数',
+    upload_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
+    status VARCHAR(20) DEFAULT 'processing' COMMENT 'processing/done/failed',
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档主表';
+
+-- 2. 分块表（核心）
+CREATE TABLE document_chunks (
+    chunk_id VARCHAR(64) PRIMARY KEY COMMENT '分块唯一ID',
+    doc_id VARCHAR(64) NOT NULL COMMENT '关联文档ID',
+    doc_name VARCHAR(255) COMMENT '冗余文件名',
+    page_num INT COMMENT '来源页码',
+    chapter_title VARCHAR(255) COMMENT '章节标题',
+    chunk_text LONGTEXT NOT NULL COMMENT '分块纯文本',
+    char_start INT COMMENT '原文起始字符位置',
+    char_end INT COMMENT '原文结束字符位置',
+    split_method VARCHAR(20) DEFAULT 'LLM' COMMENT 'LLM/RULE',
+    llm_model VARCHAR(50) COMMENT '分块所用模型',
+    status VARCHAR(20) DEFAULT 'active' COMMENT 'active/merged/split/edited',
+    merged_into_chunk_id VARCHAR(64) NULL COMMENT '被合并到的目标块ID',
+    parent_chunk_id VARCHAR(64) NULL COMMENT '父块ID(粗切块)',
+    edited_version_of VARCHAR(64) NULL COMMENT '被编辑的原版块ID',
+    quality_score FLOAT COMMENT '检索质量评分0-1',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_doc_id (doc_id),
+    INDEX idx_status (status),
+    INDEX idx_parent (parent_chunk_id),
+    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档分块表';
+
+-- 3. 用户反馈表
+CREATE TABLE chunk_feedback (
+    feedback_id INT AUTO_INCREMENT PRIMARY KEY,
+    chunk_id VARCHAR(64) NOT NULL COMMENT '关联分块ID',
+    feedback_type VARCHAR(20) COMMENT 'bad_split/wrong_content/missing_context',
+    user_comment TEXT COMMENT '用户备注',
+    corrected_text LONGTEXT COMMENT '用户修正后的文本',
+    old_chunk_text LONGTEXT COMMENT '修正前原文备份',
+    user_id VARCHAR(50) COMMENT '反馈人ID',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_chunk_id (chunk_id),
+    FOREIGN KEY (chunk_id) REFERENCES document_chunks(chunk_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分块反馈表';
+
+-- 4. 问答日志（追溯引用）
+CREATE TABLE qa_logs (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    question TEXT NOT NULL COMMENT '用户提问',
+    answer LONGTEXT COMMENT '系统回答',
+    cited_chunk_ids JSON COMMENT '引用的chunk_id列表',
+    retrieval_score FLOAT COMMENT '检索相关性得分',
+    response_time_ms INT COMMENT '响应耗时(毫秒)',
+    user_id VARCHAR(50),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_created (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='问答日志';
+四、后端API接口（Spring Boot 3）
+1. 文档管理
+接口	方法	说明
+/api/documents/upload	POST	上传文档，触发异步解析+分块流水线
+/api/documents/{docId}/chunks	GET	获取某文档所有分块（管理后台）
+/api/documents/{docId}/reprocess	POST	重新解析+分块
+2. 问答核心
+接口	方法	说明
+/api/chat/ask	POST	提问，返回带引用的答案
+请求体：
+
+json
+{
+  "question": "这份合同的违约金比例是多少？",
+  "userId": "user_001"
+}
+响应体：
+
+json
+{
+  "answer": "根据合同约定，甲方逾期付款的违约金为每日千分之一【来源：2024年供应商合作协议.pdf，第5页】。最高不超过总价款的20%【来源：2024年供应商合作协议.pdf，第5页】。",
+  "citations": [
+    {
+      "chunkId": "doc001_chunk_003",
+      "docName": "2024年供应商合作协议.pdf",
+      "pageNum": 5,
+      "text": "甲方逾期付款，每延迟一日，支付总价款的千分之一..."
+    }
+  ],
+  "hasAnswer": true
+}
+3. 分块管理（后台）
+接口	方法	说明
+/api/chunks/{chunkId}	PUT	手动编辑分块文本
+/api/chunks/merge	POST	合并多个分块
+/api/chunks/split	POST	拆分一个分块
+/api/chunks/{chunkId}/feedback	POST	提交用户反馈
+五、核心流程实现要点
+1. 文档上传→分块→入库
+java
+// 核心逻辑示意
+@Service
+public class DocumentProcessingService {
+    
+    @Autowired private OllamaClient ollama;        // 调用Qwen2.5-7B
+    @Autowired private EmbeddingClient embedding;   // 嵌入模型
+    @Autowired private ElasticsearchVectorStore es; // ES向量存储
+    @Autowired private ChunkRepository chunkRepo;   // MySQL
+    
+    @Transactional
+    public void processDocument(MultipartFile file) {
+        // 1. 解析：PDF/Word/TXT + PaddleOCR（扫描件）
+        ParsedDocument parsed = documentParser.parse(file);
+        
+        // 2. 规则粗切（父块，800字）
+        List<Chunk> roughChunks = ruleSplitter.split(parsed.getText(), 800);
+        
+        // 3. LLM精修（Qwen2.5-7B语义分块）
+        String llmResult = ollama.chat(buildSplitPrompt(parsed.getText()));
+        List<Chunk> fineChunks = parseLLMOutput(llmResult);
+        
+        // 4. 存MySQL（含父子关系）
+        for (Chunk chunk : fineChunks) {
+            chunk.setSplitMethod("LLM");
+            chunk.setParentChunkId(findParent(chunk, roughChunks));
+            chunkRepo.save(chunk);
+            
+            // 5. 生成向量，存ES
+            float[] vector = embedding.embed(chunk.getText());
+            es.add(vector, Map.of("chunkId", chunk.getId(), "docId", chunk.getDocId()));
+        }
+    }
+}
+2. 问答→多路召回→强制引用
+java
+@Service
+public class ChatService {
+    
+    @Autowired private ElasticsearchVectorStore es;   // 向量+BM25
+    @Autowired private Reranker reranker;              // BGE-Reranker
+    @Autowired private OllamaClient ollama;
+    
+    public AnswerResponse ask(String question) {
+        // 1. 多路召回（ES同时支持向量+BM25）
+        List<Chunk> vectorResults = es.similaritySearch(question, 5);
+        List<Chunk> keywordResults = es.bm25Search(question, 5);
+        List<Chunk> hydeResults = hydeSearch(question); // 假设答案再检索
+        
+        // 2. 合并去重（按chunkId）
+        Map<String, Chunk> candidateMap = mergeAndDedup(vectorResults, keywordResults, hydeResults);
+        
+        // 3. 无资料直接返回
+        if (candidateMap.isEmpty()) {
+            return AnswerResponse.notFound("抱歉，未找到与「" + question + "」相关的文档记录。");
+        }
+        
+        // 4. 重排序，取Top 3
+        List<Chunk> top3 = reranker.rerank(question, candidateMap.values())
+                                   .stream().limit(3).collect(Collectors.toList());
+        
+        // 5. 构造强制引用Prompt
+        String prompt = buildCitationPrompt(question, top3);
+        String answer = ollama.chat(prompt);
+        
+        // 6. 存问答日志
+        saveQaLog(question, answer, top3);
+        
+        return AnswerResponse.success(answer, top3);
+    }
+}
+3. 强制引用Prompt模板（关键）
+text
+你是一个严谨的文档审核助理。请仅根据以下**参考资料**回答用户问题。
+
+**硬性要求**：
+1. 回答中每一个事实陈述，必须紧跟对应的引用标记，格式为【来源：文件名，第X页】。
+2. 如果参考资料中没有相关信息，请直接回答："抱歉，在已上传的文档中未找到关于'XXX'的相关记录。"，严禁编造或使用外部知识。
+3. 如果参考资料中存在矛盾，请全部列出并注明出处，让用户自行判断，不要自行融合。
+
+**参考资料**：
+【1】文件名：2024年供应商合作协议.pdf，第5页：甲方逾期付款...
+【2】文件名：2024年供应商合作协议.pdf，第5页：最高不超过...
+
+**用户问题**：{{用户输入}}
+六、前端技术选型与页面结构
+选型理由（Nuxt 3 + Vue 3 + TypeScript）
+考量	优势
+企业级UI	Vue 3 + TailwindCSS，组件生态成熟（Naive UI/Element Plus）
+SSR（服务端渲染）	企业官网/帮助文档需要SEO
+PDF预览	用 pdf-vue3 或 pdf.js 实现点击引用跳转页码
+TypeScript	与Spring Boot强类型对齐，前后端类型安全
+页面结构
+text
+pages/
+├── index.vue              # 问答主界面（类似ChatGPT，带引用卡片）
+├── documents/
+│   ├── upload.vue         # 文档上传页面
+│   └── [id]/chunks.vue    # 查看某文档所有分块（后台）
+└── admin/
+    ├── chunks.vue         # 分块列表（筛选/编辑/合并/拆分）
+    └── feedback.vue       # 反馈列表
+
+components/
+├── ChatInput.vue          # 提问输入框
+├── AnswerCard.vue         # 答案展示（含引用超链接）
+├── CitationLink.vue       # 点击跳转PDF的引用组件
+└── ChunkEditor.vue        # 分块编辑弹窗
+引用点击跳转PDF（核心交互）
+vue
+<!-- AnswerCard.vue 核心片段 -->
+<template>
+  <div class="answer">
+    <div v-html="renderedAnswer"></div>
+    <div class="citations" v-for="cit in citations">
+      <a @click="openPdf(cit.docName, cit.pageNum)">
+        📄 {{ cit.docName }} 第{{ cit.pageNum }}页
+      </a>
+    </div>
+  </div>
+</template>
+
+<script setup>
+const openPdf = (docName, pageNum) => {
+  // 跳转到PDF预览组件并滚动到指定页码
+  navigateTo(`/pdf-viewer?doc=${encodeURIComponent(docName)}&page=${pageNum}`)
+}
+</script>
+七、Docker Compose一键部署
+yaml
+version: '3.8'
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: rag_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    command: serve
+
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mysql
+      - elasticsearch
+      - ollama
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/rag_db?useSSL=false&serverTimezone=Asia/Shanghai
+      SPRING_ELASTICSEARCH_URIS: http://elasticsearch:9200
+      OLLAMA_HOST: http://ollama:11434
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  es_data:
+  ollama_data:
