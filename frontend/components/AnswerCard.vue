@@ -9,7 +9,7 @@ const props = defineProps<{
   notice?: string | null
 }>()
 
-const emit = defineEmits<{ (e: 'open-pdf', docId: string, page: number): void }>()
+const emit = defineEmits<{ (e: 'open-pdf', docId: string, page: number, section?: string): void }>()
 
 const userId = 'user_001'
 const toast = ref('')
@@ -20,9 +20,13 @@ const selected = ref<Citation | null>(props.citations[0] || null)
 
 const rendered = computed(() =>
   renderAnswerWithCitations(props.answer, props.citations.map(c => ({
-    docId: c.docId, docName: c.docName, pageNum: c.pageNum, text: c.text
+    docId: c.docId, docName: c.docName, pageNum: c.pageNum, text: c.text, chapterTitle: c.chapterTitle
   })))
 )
+
+function openCitation(c: Citation) {
+  emit('open-pdf', c.docId, c.pageNum, c.chapterTitle || undefined)
+}
 
 async function send(type: string, chunkId: string, comment: string, corrected?: string) {
   try {
@@ -61,12 +65,12 @@ function openCorrection() {
 
     <!-- 引用卡片列表 -->
     <div v-if="citations.length" class="mt-4 space-y-2 border-t border-slate-100 pt-3">
-      <div class="text-xs font-medium text-slate-400">引用来源（点击跳转 PDF 页码）</div>
+      <div class="text-xs font-medium text-slate-400">引用来源（点击跳转源文件对应内容）</div>
       <button
         v-for="(c, i) in citations"
         :key="c.chunkId + i"
         class="group flex w-full items-start gap-2 rounded-lg bg-brand-50/60 px-3 py-2 text-left ring-1 ring-brand-100 transition hover:bg-brand-50"
-        @click="emit('open-pdf', c.docId, c.pageNum)"
+        @click="openCitation(c)"
       >
         <span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-brand-600 text-[10px] font-bold text-white">{{ i + 1 }}</span>
         <span class="min-w-0 flex-1">
@@ -125,6 +129,52 @@ function openCorrection() {
 </template>
 
 <style scoped>
+/* Markdown 回答排版（未启用 typography 插件，手动补齐常用元素） */
+.answer :deep(p) { margin: 0.4em 0; }
+.answer :deep(p:first-child) { margin-top: 0; }
+.answer :deep(p:last-child) { margin-bottom: 0; }
+.answer :deep(ul),
+.answer :deep(ol) { padding-left: 1.4em; margin: 0.5em 0; list-style: revert; }
+.answer :deep(li) { margin: 0.2em 0; }
+.answer :deep(h1),
+.answer :deep(h2),
+.answer :deep(h3),
+.answer :deep(h4) {
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0.8em 0 0.4em;
+}
+.answer :deep(h1) { font-size: 1.15rem; }
+.answer :deep(h2) { font-size: 1.05rem; }
+.answer :deep(h3) { font-size: 0.95rem; }
+.answer :deep(strong) { font-weight: 600; color: #0f172a; }
+.answer :deep(code) {
+  background: #f1f5f9;
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.9em;
+}
+.answer :deep(pre) {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.answer :deep(pre code) { background: transparent; color: inherit; padding: 0; }
+.answer :deep(blockquote) {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.8em;
+  color: #64748b;
+  margin: 0.6em 0;
+}
+.answer :deep(table) { border-collapse: collapse; margin: 0.6em 0; display: block; overflow-x: auto; max-width: 100%; }
+.answer :deep(th),
+.answer :deep(td) { border: 1px solid #e2e8f0; padding: 0.3em 0.7em; font-size: 12px; }
+.answer :deep(th) { background: #f8fafc; font-weight: 600; }
+.answer :deep(hr) { border-color: #e2e8f0; margin: 0.8em 0; }
+
 .answer :deep(.cite-chip) {
   display: inline-block;
   margin: 0 2px;

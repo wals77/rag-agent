@@ -6,6 +6,7 @@ import com.rag.kb.dto.ChatDtos;
 import com.rag.kb.entity.QaLog;
 import com.rag.kb.exception.BizException;
 import com.rag.kb.rag.RetrievalService;
+import com.rag.kb.rag.SectionContextExpander;
 import com.rag.kb.repository.QaLogRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,16 +46,19 @@ public class ChatService {
 
     private final ChatModel chatModel;
     private final RetrievalService retrievalService;
+    private final SectionContextExpander sectionExpander;
     private final QaLogRepository qaLogRepository;
     private final ObjectMapper mapper;
     private final RagProperties props;
     private final Executor chatExecutor;
 
     public ChatService(ChatModel chatModel, RetrievalService retrievalService,
+                       SectionContextExpander sectionExpander,
                        QaLogRepository qaLogRepository, ObjectMapper mapper,
                        RagProperties props, Executor chatExecutor) {
         this.chatModel = chatModel;
         this.retrievalService = retrievalService;
+        this.sectionExpander = sectionExpander;
         this.qaLogRepository = qaLogRepository;
         this.mapper = mapper;
         this.props = props;
@@ -83,7 +87,7 @@ public class ChatService {
             }
 
             emit(emitter, cancelled, "status", Map.of("stage", "retrieve"));
-            List<RetrievalService.Candidate> ranked = retrievalService.retrieve(question);
+            List<RetrievalService.Candidate> ranked = sectionExpander.expand(retrievalService.retrieve(question));
             RetrievalService.Confidence confidence = retrievalService.confidenceOf(ranked);
 
             if (ranked.isEmpty() ||
@@ -101,7 +105,9 @@ public class ChatService {
                             .toList()));
 
             String full = streamGenerate(question, ranked, emitter, cancelled);
-            if (cancelled[0]) return;
+            if (cancelled[0]) {
+                return;
+            }
 
             result = buildResponse(question, ranked, full);
             emit(emitter, cancelled, "done", result);
@@ -168,7 +174,9 @@ public class ChatService {
 
     private ChatDtos.AskResponse buildResponse(String question, List<RetrievalService.Candidate> ranked,
                                                String answer) {
-        if (answer == null) answer = "";
+        if (answer == null) {
+            answer = "";
+        }
         answer = answer.trim();
         if (answer.contains(NOT_FOUND_MARK)) {
             return new ChatDtos.AskResponse(answer, List.of(), false,
@@ -213,7 +221,9 @@ public class ChatService {
 
     /** 推送一个事件；返回 false 表示连接已断开 */
     private boolean emit(SseEmitter emitter, boolean[] cancelled, String event, Object payload) {
-        if (cancelled[0]) return false;
+        if (cancelled[0]) {
+            return false;
+        }
         try {
             emitter.send(SseEmitter.event().name(event).data(mapper.writeValueAsString(payload)));
             return true;

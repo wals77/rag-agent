@@ -27,7 +27,7 @@ public class ElasticsearchConfig {
         this.props = props;
     }
 
-    @Bean(destroyMethod = "close")
+    @Bean(destroyMethod = "")
     public ElasticsearchClient elasticsearchClient() {
         RagProperties.Es es = props.getEs();
         List<HttpHost> hosts = new ArrayList<>();

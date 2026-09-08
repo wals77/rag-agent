@@ -14,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Ollama embedding 调用（HTTP 直连 /api/embed），
@@ -46,7 +47,7 @@ public class EmbeddingService {
         if (texts.isEmpty()) return result;
         try {
             String payload = mapper.writeValueAsString(
-                    java.util.Map.of("model", props.getEmbeddingModel(), "input", texts));
+                    Map.of("model", props.getEmbeddingModel(), "input", texts));
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(props.getOllamaBaseUrl() + "/api/embed"))
                     .timeout(Duration.ofSeconds(120))
@@ -61,7 +62,9 @@ public class EmbeddingService {
             JsonNode arr = root.path("embeddings");
             for (JsonNode vec : arr) {
                 List<Float> floats = new ArrayList<>();
-                for (JsonNode v : vec) floats.add((float) v.asDouble());
+                for (JsonNode v : vec) {
+                    floats.add((float) v.asDouble());
+                }
                 result.add(floats);
             }
         } catch (Exception e) {

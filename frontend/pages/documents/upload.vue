@@ -51,7 +51,7 @@ function poll(doc: DocumentDto, entry: { status: string; docId?: string; error?:
     <h1 class="mb-1 text-lg font-semibold text-slate-800">上传文档</h1>
     <p class="mb-4 text-xs text-slate-500">支持批量；上传后进入“解析 → 规则粗切(父块) → LLM语义分块(Qwen2.5) → 向量化入库(ES+MySQL)”流水线。</p>
 
-    <DocUpload accept=".pdf,.docx,.txt" :multiple="true" @files="onFiles" />
+    <DocUpload accept=".pdf,.docx,.txt,.md" :multiple="true" @files="onFiles" />
 
     <div v-if="queue.length" class="card mt-4 divide-y divide-slate-100">
       <div v-for="(q, i) in queue" :key="i" class="flex items-center gap-3 px-4 py-3">

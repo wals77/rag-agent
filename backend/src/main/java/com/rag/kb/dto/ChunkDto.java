@@ -9,6 +9,7 @@ public class ChunkDto {
     private String docName;
     private Integer pageNum;
     private String chapterTitle;
+    private Integer headingLevel;
     private String chunkText;
     private Integer charStart;
     private Integer charEnd;
@@ -29,6 +30,7 @@ public class ChunkDto {
         o.docName = c.getDocName();
         o.pageNum = c.getPageNum();
         o.chapterTitle = c.getChapterTitle();
+        o.headingLevel = c.getHeadingLevel();
         o.chunkText = c.getChunkText();
         o.charStart = c.getCharStart();
         o.charEnd = c.getCharEnd();
@@ -54,6 +56,8 @@ public class ChunkDto {
     public void setPageNum(Integer v) { this.pageNum = v; }
     public String getChapterTitle() { return chapterTitle; }
     public void setChapterTitle(String v) { this.chapterTitle = v; }
+    public Integer getHeadingLevel() { return headingLevel; }
+    public void setHeadingLevel(Integer v) { this.headingLevel = v; }
     public String getChunkText() { return chunkText; }
     public void setChunkText(String v) { this.chunkText = v; }
     public Integer getCharStart() { return charStart; }

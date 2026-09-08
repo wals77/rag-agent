@@ -9,6 +9,7 @@ import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.rag.kb.config.ElasticsearchConfig;
 import com.rag.kb.config.RagProperties;
 import org.slf4j.Logger;
@@ -28,6 +29,8 @@ public class EsIndexService {
 
     private static final Logger log = LoggerFactory.getLogger(EsIndexService.class);
 
+    /** 写入 ES 的文档对象，embedding 为向量字段 */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record EsDoc(String chunkId, String docId, String docName, Integer pageNum,
                         String chapterTitle, String text) {}
 
@@ -155,10 +158,14 @@ public class EsIndexService {
 
     private List<EsHit> toHits(SearchResponse<EsDoc> resp) {
         List<EsHit> hits = new ArrayList<>();
-        if (resp.hits() == null || resp.hits().hits() == null) return hits;
+        if (resp.hits() == null || resp.hits().hits() == null) {
+            return hits;
+        }
         resp.hits().hits().forEach(h -> {
             EsDoc doc = h.source();
-            if (doc == null) return;
+            if (doc == null) {
+                return;
+            }
             hits.add(new EsHit(doc, h.score() == null ? 0f : h.score().floatValue()));
         });
         return hits;

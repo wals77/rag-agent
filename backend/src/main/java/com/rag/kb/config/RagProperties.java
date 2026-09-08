@@ -21,7 +21,7 @@ public class RagProperties {
     private String ollamaBaseUrl = "http://localhost:11434";
 
     /** 问答 / 语义分块 / HyDE 共用的大模型 */
-    private String chatModel = "qwen2.5:7b";
+    private String chatModel = "qwen2.5:7b-instruct";
 
     /** 嵌入模型 */
     private String embeddingModel = "nomic-embed-text";
@@ -61,7 +61,7 @@ public class RagProperties {
     }
 
     public static class Retrieval {
-        private int vectorTopK = 10;
+        private int vectorTopK = 3;
         private int bm25TopK = 10;
         private int hydeTopK = 10;
         private int rrfK = 60;

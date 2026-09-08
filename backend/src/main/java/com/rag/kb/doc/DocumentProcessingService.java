@@ -1,8 +1,9 @@
 package com.rag.kb.doc;
 
 import com.rag.kb.chunk.ChunkingEngine;
+import com.rag.kb.chunk.DocumentSplitter;
 import com.rag.kb.chunk.RoughChunk;
-import com.rag.kb.chunk.RuleSplitter;
+import com.rag.kb.chunk.SplitterFactory;
 import com.rag.kb.config.RagProperties;
 import com.rag.kb.embedding.EmbeddingService;
 import com.rag.kb.entity.Document;
@@ -35,7 +36,7 @@ public class DocumentProcessingService {
     private final DocumentChunkRepository chunkRepository;
     private final FileStorageService fileStorage;
     private final ParserFactory parserFactory;
-    private final RuleSplitter ruleSplitter;
+    private final SplitterFactory splitterFactory;
     private final ChunkingEngine chunkingEngine;
     private final EmbeddingService embeddingService;
     private final EsIndexService esIndexService;
@@ -45,7 +46,7 @@ public class DocumentProcessingService {
                                      DocumentChunkRepository chunkRepository,
                                      FileStorageService fileStorage,
                                      ParserFactory parserFactory,
-                                     RuleSplitter ruleSplitter,
+                                     SplitterFactory splitterFactory,
                                      ChunkingEngine chunkingEngine,
                                      EmbeddingService embeddingService,
                                      EsIndexService esIndexService,
@@ -54,7 +55,7 @@ public class DocumentProcessingService {
         this.chunkRepository = chunkRepository;
         this.fileStorage = fileStorage;
         this.parserFactory = parserFactory;
-        this.ruleSplitter = ruleSplitter;
+        this.splitterFactory = splitterFactory;
         this.chunkingEngine = chunkingEngine;
         this.embeddingService = embeddingService;
         this.esIndexService = esIndexService;
@@ -71,7 +72,7 @@ public class DocumentProcessingService {
         }
         DocumentParser parser = parserFactory.forFile(filename);
         if (parser == null) {
-            throw new BizException("暂不支持该文件类型，仅支持 PDF / DOCX / TXT");
+            throw new BizException("暂不支持该文件类型，仅支持 PDF / DOCX / TXT / Markdown(.md)");
         }
         String docId = com.rag.kb.util.IdGen.docId(filename);
         String path = fileStorage.store(file, docId);
@@ -114,7 +115,8 @@ public class DocumentProcessingService {
             throw new BizException("无法从文档中解析出文本内容（扫描件可能需要启用 OCR 服务后重新处理）");
         }
 
-        List<RoughChunk> roughs = ruleSplitter.split(parsed);
+        DocumentSplitter splitter = splitterFactory.forFile(doc.getDocName());
+        List<RoughChunk> roughs = splitter.split(parsed);
         if (roughs.isEmpty()) {
             throw new BizException("文档内容为空，无法分块");
         }

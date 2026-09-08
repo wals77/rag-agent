@@ -58,19 +58,23 @@ public class RetrievalService {
      */
     public List<Candidate> retrieve(String question) {
         RagProperties.Retrieval cfg = props.getRetrieval();
-        List<EsIndexService.EsHit> vectorHits = safeVectorSearch(question, cfg.getVectorTopK());
         List<EsIndexService.EsHit> bm25Hits = safeBm25(question, cfg.getBm25TopK());
-        List<EsIndexService.EsHit> hydeHits = safeHyde(question, cfg.getHydeTopK());
+        List<EsIndexService.EsHit> vectorHits = safeVectorSearch(question, cfg.getVectorTopK());
+        //List<EsIndexService.EsHit> hydeHits = safeHyde(question, cfg.getHydeTopK());
 
         List<List<EsIndexService.EsHit>> lists = new ArrayList<>();
-        lists.add(vectorHits);
         lists.add(bm25Hits);
-        if (!hydeHits.isEmpty()) lists.add(hydeHits);
+        //lists.add(vectorHits);
+//        if (!hydeHits.isEmpty()) {
+//            lists.add(hydeHits);
+//        }
 
         // RRF 合并
         Map<String, Double> fused = new LinkedHashMap<>();
         for (List<EsIndexService.EsHit> hits : lists) {
-            if (hits == null) continue;
+            if (hits == null) {
+                continue;
+            }
             for (int i = 0; i < hits.size(); i++) {
                 String id = hits.get(i).doc().chunkId();
                 fused.merge(id, 1.0 / (cfg.getRrfK() + i + 1), Double::sum);
@@ -101,14 +105,18 @@ public class RetrievalService {
     public record Confidence(double value, boolean fromRerank) {}
 
     public Confidence confidenceOf(List<Candidate> ranked) {
-        if (ranked.isEmpty()) return new Confidence(0, true);
+        if (ranked.isEmpty()) {
+            return new Confidence(0, true);
+        }
         double v = ranked.get(0).score();
         boolean fromRerank = ranked.stream().anyMatch(c -> c.sources().contains("rerank"));
         return new Confidence(Math.max(0, Math.min(1, v)), fromRerank);
     }
 
     private List<Candidate> rerank(String question, List<DocumentChunk> candidates, int topN) {
-        if (candidates.isEmpty()) return List.of();
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
         List<RerankClient.Passage> passages = candidates.stream()
                 .map(c -> new RerankClient.Passage(c.getChunkId(),
                         truncate(c.getChunkText(), 600), c.getDocName(), c.getPageNum()))
@@ -133,7 +141,9 @@ public class RetrievalService {
     private Map<String, DocumentChunk> loadChunks(List<String> ids) {
         List<DocumentChunk> rows = chunkRepository.findByChunkIdInAndStatus(ids, DocumentChunk.STATUS_ACTIVE);
         Map<String, DocumentChunk> map = new HashMap<>();
-        for (DocumentChunk r : rows) map.put(r.getChunkId(), r);
+        for (DocumentChunk r : rows) {
+            map.put(r.getChunkId(), r);
+        }
         return map;
     }
 
@@ -159,7 +169,9 @@ public class RetrievalService {
     private List<EsIndexService.EsHit> safeHyde(String question, int topK) {
         try {
             String hypothetical = hydeHypothesis(question);
-            if (hypothetical == null || hypothetical.isBlank()) return List.of();
+            if (hypothetical == null || hypothetical.isBlank()) {
+                return List.of();
+            }
             List<Float> qv = embeddingService.embed(hypothetical);
             return esIndexService.knnSearch(qv, topK);
         } catch (Exception e) {
@@ -182,7 +194,9 @@ public class RetrievalService {
     }
 
     private String truncate(String s, int max) {
-        if (s == null) return "";
+        if (s == null) {
+            return "";
+        }
         return s.length() <= max ? s : s.substring(0, max);
     }
 }

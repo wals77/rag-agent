@@ -18,6 +18,7 @@ public class DocumentChunk {
 
     public static final String SPLIT_METHOD_LLM = "LLM";
     public static final String SPLIT_METHOD_RULE = "RULE";
+    public static final String SPLIT_METHOD_MD = "MD";
 
     @Id
     @Column(name = "chunk_id", length = 64)
@@ -34,6 +35,10 @@ public class DocumentChunk {
 
     @Column(name = "chapter_title", length = 255)
     private String chapterTitle;
+
+    /** Markdown 标题层级（1-6），非标题驱动拆分时为空 */
+    @Column(name = "heading_level")
+    private Integer headingLevel;
 
     @Column(name = "chunk_text", nullable = false, columnDefinition = "LONGTEXT")
     private String chunkText;
@@ -81,6 +86,8 @@ public class DocumentChunk {
     public void setPageNum(Integer v) { this.pageNum = v; }
     public String getChapterTitle() { return chapterTitle; }
     public void setChapterTitle(String v) { this.chapterTitle = v; }
+    public Integer getHeadingLevel() { return headingLevel; }
+    public void setHeadingLevel(Integer v) { this.headingLevel = v; }
     public String getChunkText() { return chunkText; }
     public void setChunkText(String v) { this.chunkText = v; }
     public Integer getCharStart() { return charStart; }

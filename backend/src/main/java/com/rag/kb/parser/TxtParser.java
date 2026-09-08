@@ -31,7 +31,7 @@ public class TxtParser implements DocumentParser {
         return doc;
     }
 
-    private String decode(byte[] bytes) {
+    protected String decode(byte[] bytes) {
         for (Charset cs : new Charset[]{StandardCharsets.UTF_8, Charset.forName("GBK"), StandardCharsets.ISO_8859_1}) {
             try {
                 String s = new String(bytes, cs);

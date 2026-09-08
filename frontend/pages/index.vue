@@ -5,6 +5,7 @@ import { randomId } from '~/utils/answer'
 const messages = ref<ChatItem[]>([])
 const sending = ref(false)
 const storageKey = 'rag_chat_history_v1'
+const scrollKey = 'rag_chat_scroll_v1'
 
 const samples = [
   '违约金比例是多少？',
@@ -12,16 +13,63 @@ const samples = [
   '这份文档提到了哪些数据？'
 ]
 
-onMounted(() => {
-  try {
-    const raw = sessionStorage.getItem(storageKey)
-    if (raw) messages.value = JSON.parse(raw) as ChatItem[]
-  } catch { /* ignore */ }
+/** 持久化前快照：不保存流式/加载中的瞬时状态，避免返回/刷新后出现卡住的占位 */
+function stableSnapshot(list: ChatItem[]): ChatItem[] {
+  const out: ChatItem[] = []
+  for (const m of list) {
+    if (m.role === 'user') { out.push(m); continue }
+    if (!m.answer && !m.error && !m.citations?.length) continue
+    const { loading, streaming, ...rest } = m
+    out.push(rest)
+  }
+  return out
+}
+
+function persistNow() {
+  try { sessionStorage.setItem(storageKey, JSON.stringify(stableSnapshot(messages.value))) } catch { /* ignore */ }
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+function persistSoon() {
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    persistNow()
+  }, 200)
+}
+
+onMounted(async () => {
+  if (import.meta.client) {
+    try {
+      const raw = sessionStorage.getItem(storageKey)
+      if (raw) {
+        const restored = JSON.parse(raw) as ChatItem[]
+        messages.value = restored
+          .filter(m => m.role === 'user' || !!m.answer || !!m.error || !!m.citations?.length)
+          .map(m => (m.role === 'assistant' ? { ...m, loading: false, streaming: false } : m))
+      }
+    } catch { /* ignore */ }
+  }
+  // 恢复回来的滚动位置，避免返回/刷新后回答内容被顶出可视区
+  await nextTick()
+  const savedStr = import.meta.client ? sessionStorage.getItem(scrollKey) : null
+  const saved = Number(savedStr || '0')
+  const target = Number.isFinite(saved) && saved > 0 ? saved : (scrollEl.value?.scrollHeight ?? 0)
+  if (scrollEl.value) scrollEl.value.scrollTop = target
+  await nextTick()
+  if (scrollEl.value && scrollEl.value.scrollTop === 0 && target > 0) {
+    scrollEl.value.scrollTop = scrollEl.value.scrollHeight
+  }
 })
 
-watch(messages, (v) => {
-  try { sessionStorage.setItem(storageKey, JSON.stringify(v)) } catch { /* ignore */ }
-}, { deep: true })
+function onChatScroll() {
+  if (!scrollEl.value) return
+  try {
+    sessionStorage.setItem(scrollKey, String(scrollEl.value.scrollTop))
+  } catch { /* ignore */ }
+}
+
+watch(messages, () => persistSoon(), { deep: true })
 
 const scrollEl = ref<HTMLElement>()
 
@@ -69,16 +117,23 @@ async function submit(text: string) {
     item.error = e?.message || '请求失败'
   } finally {
     sending.value = false
+    // 明确持久化最终快照，避免依赖 deep watcher 的触发时机导致丢失
+    persistNow()
     scrollBottom()
   }
 }
 
-function openPdf(docId: string, page: number) {
-  navigateTo({ path: '/pdf-viewer', query: { docId, page: String(page) } })
+function openPdf(docId: string, page: number, section?: string) {
+  const query: Record<string, string> = { docId, page: String(page) }
+  if (section) query.section = section
+  navigateTo({ path: '/pdf-viewer', query })
 }
 
 function clearAll() {
   messages.value = []
+  if (persistTimer) { clearTimeout(persistTimer); persistTimer = null }
+  persistNow()
+  try { sessionStorage.removeItem(scrollKey) } catch { /* ignore */ }
 }
 </script>
 
@@ -88,13 +143,13 @@ function clearAll() {
     <div class="mb-3 flex items-center justify-between">
       <div>
         <h1 class="text-lg font-semibold text-slate-800">基于文档的问答</h1>
-        <p class="text-xs text-slate-500">回答严格基于已上传文档并强制引用【来源：文件名，第X页】，点击引用跳转 PDF 页码。</p>
+        <p class="text-xs text-slate-500">回答严格基于已上传文档并强制引用【来源：文件名，第X页】，点击引用跳转源文件对应内容。</p>
       </div>
       <button v-if="messages.length" class="btn-ghost text-xs" @click="clearAll">清空对话</button>
     </div>
 
     <!-- 消息区 -->
-    <div ref="scrollEl" class="flex-1 space-y-4 overflow-y-auto rounded-xl bg-slate-100/70 p-4">
+    <div ref="scrollEl" class="flex-1 space-y-4 overflow-y-auto rounded-xl bg-slate-100/70 p-4" @scroll.passive="onChatScroll">
       <div v-if="!messages.length" class="flex h-full flex-col items-center justify-center text-center">
         <div class="mb-4 text-5xl">📚</div>
         <p class="mb-1 text-sm font-medium text-slate-600">向企业知识库提问</p>

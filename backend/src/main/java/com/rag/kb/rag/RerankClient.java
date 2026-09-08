@@ -43,6 +43,9 @@ public class RerankClient {
      */
     public double[] rerank(String query, List<Passage> passages) {
         if (!available() || passages.isEmpty()) return null;
+        if (true) {
+            return null;
+        }
         try {
             List<Map<String, Object>> ps = new ArrayList<>();
             for (Passage p : passages) {

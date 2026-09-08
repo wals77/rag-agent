@@ -2,24 +2,27 @@ package com.rag.kb.chunk;
 
 import com.rag.kb.config.RagProperties;
 import com.rag.kb.parser.ParsedDocument;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * 规则粗切（父块）：按页扫描，遇到章/节标题或达到单块最大字符后结束当前块。
- * 同时记录父块在全文中的全局字符区间、页码、章节标题。
+ * 通用规则粗切（父块）：适用于 PDF / DOCX / TXT 等非结构化文本，按页扫描，
+ * 遇到章/节标题或达到单块最大字符后结束当前块；同时记录父块在全文中的
+ * 全局字符区间、页码、章节标题。
+ *
+ * <p>作为拆分器列表的最后兜底（{@code @Order(LOWEST_PRECEDENCE)}）：新的文件类型
+ * 如需专用拆分，优先新建 {@link DocumentSplitter} 实现并通过 {@code supports()} 声明，
+ * 本类不认领未在其 {@link #supports(String)} 中列出的类型。</p>
  */
 @Component
-public class RuleSplitter {
-
-    private final int maxChars;
-
-    public RuleSplitter(RagProperties props) {
-        this.maxChars = props.getChunking().getRuleMaxChars();
-    }
+@Order(Ordered.LOWEST_PRECEDENCE)
+public class RuleSplitter extends DocumentSplitter {
 
     private static final Pattern HEADING =
             Pattern.compile("^(?:第\\s*[0-9一二三四五六七八九十百千零两]+\\s*[章节卷篇部课]"
@@ -28,7 +31,24 @@ public class RuleSplitter {
                     + "|[一二三四五六七八九十百千]+[、．.]\\S{1,60}"
                     + "|(?:附录|附件|前言|引言|摘要|目录|结[论语]|参考文献|致谢)[:：]?\\s*\\S{0,40})");
 
+    public RuleSplitter(RagProperties props) {
+        super(props);
+    }
+
+    @Override
+    public boolean supports(String filename) {
+        String lower = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".pdf") || lower.endsWith(".docx")
+                || lower.endsWith(".txt") || lower.endsWith(".text");
+    }
+
+    @Override
     public List<RoughChunk> split(ParsedDocument doc) {
+        return splitGeneric(doc);
+    }
+
+    /** 通用拆分策略：逐页扫描，遇到章/节标题或达到单块最大字符后结束当前块。 */
+    private List<RoughChunk> splitGeneric(ParsedDocument doc) {
         List<RoughChunk> result = new ArrayList<>();
         int globalCursor = 0;
         String activeHeading = null;
@@ -94,68 +114,11 @@ public class RuleSplitter {
         return result;
     }
 
-    private void flush(List<RoughChunk> out, List<Line> cur, int curLen,
-                       int segLocalStart, int segLocalEnd, int pageGlobalStart,
-                       int pageNum, String heading) {
-        if (cur.isEmpty()) return;
-        StringBuilder sb = new StringBuilder();
-        for (Line l : cur) {
-            if (sb.length() > 0) sb.append('\n');
-            sb.append(l.text);
-        }
-        out.add(new RoughChunk(sb.toString(), pageNum, heading,
-                pageGlobalStart + Math.max(0, segLocalStart),
-                pageGlobalStart + Math.max(0, segLocalEnd)));
-    }
-
-    /** 将“疑似句子断点前内容”继续拆分 */
-    private List<String> splitBySentence(String text) {
-        List<String> res = new ArrayList<>();
-        String[] parts = text.split("(?<=[。！？；;])");
-        StringBuilder cur = new StringBuilder();
-        for (String p : parts) {
-            if (cur.length() + p.length() > maxChars && cur.length() > 0) {
-                res.add(cur.toString());
-                cur.setLength(0);
-            }
-            cur.append(p);
-        }
-        if (cur.length() > 0) res.add(cur.toString());
-        return res;
-    }
-
     private boolean isHeading(String line) {
         if (line == null) return false;
         String t = line.trim();
         if (t.length() > 80) return false;
         if (t.isEmpty()) return false;
         return HEADING.matcher(t).matches();
-    }
-
-    private record Line(String text, int start, int end) {}
-
-    private List<Line> toLines(String pageText) {
-        List<Line> res = new ArrayList<>();
-        if (pageText == null || pageText.isEmpty()) return res;
-        int i = 0, n = pageText.length();
-        while (i < n) {
-            while (i < n && Character.isWhitespace(pageText.charAt(i))) i++;
-            if (i >= n) break;
-            int start = i;
-            while (i < n && pageText.charAt(i) != '\n') i++;
-            int end = i;
-            String content = pageText.substring(start, end).trim();
-            if (!content.isEmpty()) {
-                res.add(new Line(content.replaceAll("[\\t ]+", " "), start, end));
-            }
-            if (i < n && pageText.charAt(i) == '\n') i++;
-        }
-        return res;
-    }
-
-    /** 近似定位某一整段在 pageText 中的起点（用于粗定位，失败返回 -1） */
-    private int pieceStart(String pageText, String piece, int fallback) {
-        int idx = pageText.indexOf(piece);
-        return idx >= 0 ? idx : fallback;
     }
 }

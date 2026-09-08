@@ -39,6 +39,11 @@ public class ChunkingEngine {
 
     public ChunkBatch build(Document doc, ParsedDocument parsed, List<RoughChunk> roughs) {
         ChunkBatch batch = new ChunkBatch();
+        if (isMarkdown(doc.getDocName())) {
+            // Markdown：AST 结构化拆分结果直接落库，不使用 LLM 细分
+            buildMd(doc, roughs, batch);
+            return batch;
+        }
         for (RoughChunk rc : roughs) {
             List<String> pieces = llmChunking.refine(rc.text());
             if (pieces == null) {
@@ -71,6 +76,40 @@ public class ChunkingEngine {
         return batch;
     }
 
+    /**
+     * Markdown 落库：同一父章节（sectionKey 相同且连续）的超长拆分子块挂到
+     * 父章节块（status=split）之下，供检索命中子块时扩展整章上下文。
+     */
+    private void buildMd(Document doc, List<RoughChunk> roughs, ChunkBatch batch) {
+        DocumentChunk parent = null;
+        String currentKey = null;
+        for (RoughChunk rc : roughs) {
+            String key = rc.sectionKey();
+            if (key == null || !key.equals(currentKey)) {
+                parent = null;
+                currentKey = key;
+            }
+            if (rc.isSectionParent()) {
+                DocumentChunk p = newChunk(doc, rc, null, rc.text(), rc.charStart(), rc.charEnd(),
+                        DocumentChunk.SPLIT_METHOD_MD, null, null);
+                p.setStatus(DocumentChunk.STATUS_SPLIT);
+                batch.chunks().add(p);
+                parent = p;
+                continue;
+            }
+            DocumentChunk c = newChunk(doc, rc, parent == null ? null : parent.getChunkId(),
+                    rc.text(), rc.charStart(), rc.charEnd(), DocumentChunk.SPLIT_METHOD_MD, null, null);
+            batch.chunks().add(c);
+            batch.actives().add(c);
+        }
+    }
+
+    private boolean isMarkdown(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".md") || lower.endsWith(".markdown");
+    }
+
     private DocumentChunk newChunk(Document doc, RoughChunk rc, String parentId, String text,
                                    int charStart, int charEnd, String method, String llmModel, String tag) {
         DocumentChunk c = new DocumentChunk();
@@ -79,6 +118,7 @@ public class ChunkingEngine {
         c.setDocName(doc.getDocName());
         c.setPageNum(rc.pageNum());
         c.setChapterTitle(rc.chapterTitle());
+        c.setHeadingLevel(rc.headingLevel());
         c.setChunkText(text);
         c.setCharStart(charStart);
         c.setCharEnd(charEnd);
