@@ -341,13 +341,13 @@ public class MdSplitter extends DocumentSplitter {
         return res;
     }
 
-    /** 生成块：内容头部注入章节路径；chapterTitle 保留尾部（防超长） */
+    /** 生成块：内容头部注入章节路径；rawContent 保留未注入的原始 Markdown；chapterTitle 保留尾部（防超长） */
     private RoughChunk chunk(String path, Integer level, String sectionKey,
                              String content, int start, int end, boolean sectionParent) {
         String text = (path == null || path.isBlank())
                 ? content
                 : PATH_PREFIX + path + "\n" + content;
-        return new RoughChunk(text, 1, truncateTail(path), start, end, level, sectionKey, sectionParent);
+        return new RoughChunk(text, 1, truncateTail(path), start, end, level, sectionKey, sectionParent, content);
     }
 
     private String truncateTail(String path) {

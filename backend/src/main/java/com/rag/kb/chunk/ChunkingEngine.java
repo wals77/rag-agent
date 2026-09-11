@@ -79,6 +79,7 @@ public class ChunkingEngine {
     /**
      * Markdown 落库：同一父章节（sectionKey 相同且连续）的超长拆分子块挂到
      * 父章节块（status=split）之下，供检索命中子块时扩展整章上下文。
+     * 双份文本：chunkText=清洗后（进向量库/给模型），rawContent=原始 Markdown（人工核对/前端展示）。
      */
     private void buildMd(Document doc, List<RoughChunk> roughs, ChunkBatch batch) {
         DocumentChunk parent = null;
@@ -89,19 +90,31 @@ public class ChunkingEngine {
                 parent = null;
                 currentKey = key;
             }
+            String cleaned = cleanMarkdownSyntax(rc.text());
+            String raw = rc.rawContent() != null ? rc.rawContent() : rc.text();
             if (rc.isSectionParent()) {
-                DocumentChunk p = newChunk(doc, rc, null, rc.text(), rc.charStart(), rc.charEnd(),
+                DocumentChunk p = newChunk(doc, rc, null, cleaned, rc.charStart(), rc.charEnd(),
                         DocumentChunk.SPLIT_METHOD_MD, null, null);
+                p.setRawContent(raw);
                 p.setStatus(DocumentChunk.STATUS_SPLIT);
                 batch.chunks().add(p);
                 parent = p;
                 continue;
             }
             DocumentChunk c = newChunk(doc, rc, parent == null ? null : parent.getChunkId(),
-                    rc.text(), rc.charStart(), rc.charEnd(), DocumentChunk.SPLIT_METHOD_MD, null, null);
+                    cleaned, rc.charStart(), rc.charEnd(), DocumentChunk.SPLIT_METHOD_MD, null, null);
+            c.setRawContent(raw);
             batch.chunks().add(c);
             batch.actives().add(c);
         }
+    }
+
+    /**
+     * Markdown 语法清洗入口（委托 {@link MarkdownSyntaxCleaner}）：
+     * 表格先行转自然语言，其余语法随后；双份文本见 buildMd 注释。
+     */
+    public static String cleanMarkdownSyntax(String rawContent) {
+        return MarkdownSyntaxCleaner.clean(rawContent);
     }
 
     private boolean isMarkdown(String name) {

@@ -47,6 +47,7 @@ public class ChatService {
     private final ChatModel chatModel;
     private final RetrievalService retrievalService;
     private final SectionContextExpander sectionExpander;
+    private final ConversationService conversationService;
     private final QaLogRepository qaLogRepository;
     private final ObjectMapper mapper;
     private final RagProperties props;
@@ -54,11 +55,13 @@ public class ChatService {
 
     public ChatService(ChatModel chatModel, RetrievalService retrievalService,
                        SectionContextExpander sectionExpander,
+                       ConversationService conversationService,
                        QaLogRepository qaLogRepository, ObjectMapper mapper,
                        RagProperties props, Executor chatExecutor) {
         this.chatModel = chatModel;
         this.retrievalService = retrievalService;
         this.sectionExpander = sectionExpander;
+        this.conversationService = conversationService;
         this.qaLogRepository = qaLogRepository;
         this.mapper = mapper;
         this.props = props;
@@ -104,7 +107,10 @@ public class ChatService {
                             .distinct()
                             .toList()));
 
-            String full = streamGenerate(question, ranked, emitter, cancelled);
+            List<com.rag.kb.entity.ChatMessage> memory = request.conversationId() == null
+                    ? List.of()
+                    : conversationService.memoryWindow(request.conversationId());
+            String full = streamGenerate(question, ranked, memory, emitter, cancelled);
             if (cancelled[0]) {
                 return;
             }
@@ -120,6 +126,15 @@ public class ChatService {
         } finally {
             if (result != null) {
                 saveLog(request, result, null, System.currentTimeMillis() - start);
+                // 会话记忆：把本轮问答写入数据库（拒绝回答的轮次也保存，保持上下文连贯）
+                if (request.conversationId() != null && !request.conversationId().isBlank()) {
+                    try {
+                        conversationService.recordTurn(request.conversationId(), request.question(),
+                                result.answer(), result.citations());
+                    } catch (Exception e) {
+                        log.warn("对话消息落库失败: {}", e.getMessage());
+                    }
+                }
             }
             try {
                 emitter.complete();
@@ -131,6 +146,7 @@ public class ChatService {
 
     /** 调用 Qwen 流式生成，把增量文本逐段通过 SSE 推送，并返回完整文本。 */
     private String streamGenerate(String question, List<RetrievalService.Candidate> ranked,
+                                  List<com.rag.kb.entity.ChatMessage> memory,
                                   SseEmitter emitter, boolean[] cancelled) {
         String system = """
                 你是一个企业私域知识库的“引用可追溯”问答助手。请严格依据下方的【参考资料】回答用户问题。
@@ -143,12 +159,17 @@ public class ChatService {
                 5. 只能使用参考资料中的内容，不要引用外部知识，不要自行补充任何资料中没有的企业、机构、数据或专有名词。
                 """;
 
-        StringBuilder refs = new StringBuilder("参考资料：\n");
+        StringBuilder refs = new StringBuilder();
+        String memoryText = conversationService.renderMemory(memory);
+        if (!memoryText.isEmpty()) {
+            refs.append(memoryText).append('\n');
+        }
+        refs.append("参考资料：\n");
         int i = 1;
         for (RetrievalService.Candidate c : ranked) {
             refs.append("【").append(i).append("】文件名：").append(c.chunk().getDocName())
                     .append("，第").append(c.chunk().getPageNum()).append("页：")
-                    .append(truncate(c.chunk().getChunkText(), 900)).append("\n");
+                    .append(truncate(c.chunk().getRawContent(), 900)).append("\n");
             i++;
         }
         refs.append("\n用户问题：").append(question);

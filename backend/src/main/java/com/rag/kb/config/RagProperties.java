@@ -61,7 +61,7 @@ public class RagProperties {
     }
 
     public static class Retrieval {
-        private int vectorTopK = 3;
+        private int vectorTopK = 10;
         private int bm25TopK = 10;
         private int hydeTopK = 10;
         private int rrfK = 60;
@@ -87,7 +87,7 @@ public class RagProperties {
 
     public static class Rerank {
         /** BGE-Reranker Python 服务地址，为空则降级为 RRF 排序 */
-        private String baseUrl = "http://localhost:8001";
+        private String baseUrl = "http://localhost:8000";
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
     }

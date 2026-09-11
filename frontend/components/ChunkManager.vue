@@ -16,6 +16,12 @@ const selectedDoc = ref(props.docIdFilter || '')
 const loading = ref(false)
 const toast = ref('')
 const selected = ref(new Set<string>())
+const rawOpen = reactive(new Set<string>())
+
+function toggleRaw(chunkId: string) {
+  if (rawOpen.has(chunkId)) rawOpen.delete(chunkId)
+  else rawOpen.add(chunkId)
+}
 
 const editTarget = ref<ChunkDto | null>(null)
 const splitTarget = ref<ChunkDto | null>(null)
@@ -184,6 +190,12 @@ onMounted(() => {
             </td>
             <td class="max-w-md px-3 py-2.5">
               <p class="line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{{ c.chunkText }}</p>
+              <template v-if="c.rawContent">
+                <button class="mt-1 text-[10px] text-brand-600 hover:underline" @click="toggleRaw(c.chunkId)">
+                  {{ rawOpen.has(c.chunkId) ? '收起原文' : '查看原文(Markdown)' }}
+                </button>
+                <pre v-if="rawOpen.has(c.chunkId)" class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-slate-900 p-2 text-[10px] leading-relaxed text-slate-100">{{ c.rawContent }}</pre>
+              </template>
               <p class="mt-1 text-[10px] text-slate-300">#{{ c.chunkId.slice(-12) }}</p>
             </td>
             <td class="px-3 py-2.5">

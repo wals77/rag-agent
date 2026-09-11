@@ -64,7 +64,7 @@ public class RetrievalService {
 
         List<List<EsIndexService.EsHit>> lists = new ArrayList<>();
         lists.add(bm25Hits);
-        //lists.add(vectorHits);
+        lists.add(vectorHits);
 //        if (!hydeHits.isEmpty()) {
 //            lists.add(hydeHits);
 //        }

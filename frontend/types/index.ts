@@ -38,6 +38,7 @@ export interface ChunkDto {
   pageNum: number
   chapterTitle?: string
   chunkText: string
+  rawContent?: string
   charStart: number
   charEnd: number
   splitMethod: 'LLM' | 'RULE'
@@ -98,3 +99,19 @@ export interface ChatItem {
 }
 
 export type ChatHistory = ChatItem[]
+
+export interface ConversationDto {
+  conversationId: string
+  userId: string
+  title: string
+  lastMessageTime: string | null
+  createdAt: string | null
+}
+
+export interface MessageDto {
+  messageId: number
+  role: 'user' | 'assistant'
+  content: string
+  citations: Citation[] | null
+  createdAt: string | null
+}

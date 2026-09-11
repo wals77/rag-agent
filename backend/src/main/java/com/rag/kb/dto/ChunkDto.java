@@ -11,6 +11,7 @@ public class ChunkDto {
     private String chapterTitle;
     private Integer headingLevel;
     private String chunkText;
+    private String rawContent;
     private Integer charStart;
     private Integer charEnd;
     private String splitMethod;
@@ -32,6 +33,7 @@ public class ChunkDto {
         o.chapterTitle = c.getChapterTitle();
         o.headingLevel = c.getHeadingLevel();
         o.chunkText = c.getChunkText();
+        o.rawContent = c.getRawContent();
         o.charStart = c.getCharStart();
         o.charEnd = c.getCharEnd();
         o.splitMethod = c.getSplitMethod();
@@ -60,6 +62,8 @@ public class ChunkDto {
     public void setHeadingLevel(Integer v) { this.headingLevel = v; }
     public String getChunkText() { return chunkText; }
     public void setChunkText(String v) { this.chunkText = v; }
+    public String getRawContent() { return rawContent; }
+    public void setRawContent(String v) { this.rawContent = v; }
     public Integer getCharStart() { return charStart; }
     public void setCharStart(Integer v) { this.charStart = v; }
     public Integer getCharEnd() { return charEnd; }

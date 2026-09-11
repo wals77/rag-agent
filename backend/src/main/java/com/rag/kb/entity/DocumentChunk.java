@@ -43,6 +43,10 @@ public class DocumentChunk {
     @Column(name = "chunk_text", nullable = false, columnDefinition = "LONGTEXT")
     private String chunkText;
 
+    /** 原始 Markdown 文本（清洗前），供前端展示引用原文/人工核对 */
+    @Column(name = "raw_content", columnDefinition = "LONGTEXT")
+    private String rawContent;
+
     @Column(name = "char_start")
     private Integer charStart;
 
@@ -90,6 +94,8 @@ public class DocumentChunk {
     public void setHeadingLevel(Integer v) { this.headingLevel = v; }
     public String getChunkText() { return chunkText; }
     public void setChunkText(String v) { this.chunkText = v; }
+    public String getRawContent() { return rawContent; }
+    public void setRawContent(String v) { this.rawContent = v; }
     public Integer getCharStart() { return charStart; }
     public void setCharStart(Integer v) { this.charStart = v; }
     public Integer getCharEnd() { return charEnd; }

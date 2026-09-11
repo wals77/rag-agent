@@ -14,13 +14,20 @@ public class RoughChunk {
     private final String sectionKey;
     /** 是否为父章节整体内容块（仅用于落库 status=split 的父节点，不参与检索） */
     private final boolean sectionParent;
+    /** 原始 Markdown 文本（未清洗、未注入章节路径），供人工核对/前端展示 */
+    private final String rawContent;
 
     public RoughChunk(String text, int pageNum, String chapterTitle, int charStart, int charEnd) {
-        this(text, pageNum, chapterTitle, charStart, charEnd, null, null, false);
+        this(text, pageNum, chapterTitle, charStart, charEnd, null, null, false, null);
     }
 
     public RoughChunk(String text, int pageNum, String chapterTitle, int charStart, int charEnd,
                       Integer headingLevel, String sectionKey, boolean sectionParent) {
+        this(text, pageNum, chapterTitle, charStart, charEnd, headingLevel, sectionKey, sectionParent, null);
+    }
+
+    public RoughChunk(String text, int pageNum, String chapterTitle, int charStart, int charEnd,
+                      Integer headingLevel, String sectionKey, boolean sectionParent, String rawContent) {
         this.text = text;
         this.pageNum = pageNum;
         this.chapterTitle = chapterTitle;
@@ -29,6 +36,7 @@ public class RoughChunk {
         this.headingLevel = headingLevel;
         this.sectionKey = sectionKey;
         this.sectionParent = sectionParent;
+        this.rawContent = rawContent;
     }
 
     public String text() { return text; }
@@ -39,4 +47,5 @@ public class RoughChunk {
     public Integer headingLevel() { return headingLevel; }
     public String sectionKey() { return sectionKey; }
     public boolean isSectionParent() { return sectionParent; }
+    public String rawContent() { return rawContent; }
 }

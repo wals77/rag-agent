@@ -1,6 +1,6 @@
 import type {
-  AskResponse, ChunkDto, ChunkMutationResult, DocumentDto,
-  FeedbackDto, FeedbackResult, PageResult
+  AskResponse, ChunkDto, ChunkMutationResult, ConversationDto, DocumentDto,
+  FeedbackDto, FeedbackResult, MessageDto, PageResult
 } from '~/types'
 
 function base(): string {
@@ -31,12 +31,13 @@ export interface AskStreamHandlers {
 export async function askChatStream(
   question: string,
   userId: string,
+  conversationId: string | null,
   handlers: AskStreamHandlers
 ): Promise<void> {
   const resp = await fetch(`${base()}/api/chat/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ question, userId })
+    body: JSON.stringify({ question, userId, conversationId })
   })
   if (!resp.ok || !resp.body) {
     const bodyText = await resp.text().catch(() => '')
@@ -177,4 +178,24 @@ export async function listFeedbacks(page = 0, size = 50): Promise<PageResult<Fee
 
 export function fileUrl(docId: string): string {
   return `${base()}/api/documents/${encodeURIComponent(docId)}/file`
+}
+
+/** 创建新对话（title 可空，默认“新对话”，首问后自动改为问题摘要） */
+export async function createConversation(userId: string, title?: string): Promise<ConversationDto> {
+  return handle($fetch<ConversationDto>(`${base()}/api/conversations`, {
+    method: 'POST',
+    body: { userId, title: title || undefined }
+  }))
+}
+
+export async function listConversations(userId: string): Promise<ConversationDto[]> {
+  return handle($fetch<ConversationDto[]>(`${base()}/api/conversations?userId=${encodeURIComponent(userId)}`))
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  return handle($fetch(`${base()}/api/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' }))
+}
+
+export async function listMessages(conversationId: string): Promise<MessageDto[]> {
+  return handle($fetch<MessageDto[]>(`${base()}/api/conversations/${encodeURIComponent(conversationId)}/messages`))
 }
